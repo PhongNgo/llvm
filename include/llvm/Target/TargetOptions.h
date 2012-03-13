@@ -43,6 +43,7 @@ namespace llvm {
           StackAlignmentOverride(0), RealignStack(true),
           DisableJumpTables(false), EnableFastISel(false),
           PositionIndependentExecutable(false), EnableSegmentedStacks(false),
+          EnableHiPEPrologue(false),
           TrapFuncName(""), FloatABIType(FloatABI::Default)
     {}
 
@@ -171,6 +172,11 @@ namespace llvm {
     unsigned PositionIndependentExecutable : 1;
 
     unsigned EnableSegmentedStacks : 1;
+
+    /// EnableHiPEPrologue - This flag indicates that the PrologEpilogInserter
+    /// should adjust a function's prologue by adding explicit calls to
+    /// "inc_stack_0" BIF to increase a function's stack, when needed.
+    unsigned EnableHiPEPrologue : 1;
 
     /// getTrapFunctionName - If this returns a non-empty string, this means
     /// isel should lower Intrinsic::trap to a call to the specified function
