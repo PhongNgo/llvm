@@ -16,6 +16,7 @@
 #include "ARMBaseRegisterInfo.h"
 #include "ARMMachineFunctionInfo.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
+#include "llvm/CallingConv.h"
 #include "llvm/Function.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -353,7 +354,7 @@ void ARMFrameLowering::emitEpilogue(MachineFunction &MF,
   unsigned VARegSaveSize = AFI->getVarArgsRegSaveSize();
   int NumBytes = (int)MFI->getStackSize();
   unsigned FramePtr = RegInfo->getFrameRegister(MF);
-
+	
   if (!AFI->hasStackFrame()) {
     if (NumBytes != 0)
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, NumBytes);
@@ -1423,4 +1424,112 @@ ARMFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
     MF.getRegInfo().setPhysRegUsed(ARM::LR);
     AFI->setLRIsSpilledForFarJump(true);
   }
+}
+
+// --------------------We need below functions for HiPE prologue code emission for ARM-----
+
+// Erlang programs may need a special prologue to handle the stack size they
+// might need. That is because Erlang/OTP does not implement a C stack but
+// uses a custom implementation of hybrid stack/heap architecture. (for more
+// information see Eric Stenman's Ph.D. thesis:
+// http://publications.uu.se/uu/fulltext/nbn_se_uu_diva-2688.pdf)
+//
+// Entry:
+//
+// CheckStack:
+//    temp0 = sp - MaxStack
+//    if( temp0 < SP_LIMIT(P) ) goto IncStack else goto NewEntry
+// IncStack:
+//    call inc_stack
+//    goto NewStart
+// NewEntry:
+//    push %rbp
+//    ...
+void ARMFrameLowering::adjustForHiPEPrologue(MachineFunction &MF) const {	
+  MachineBasicBlock &prologueMBB = MF.front();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+	
+  const ARMBaseInstrInfo &TII =
+    *static_cast<const ARMBaseInstrInfo*>(MF.getTarget().getInstrInfo());
+
+  unsigned MaxStack = MFI->getStackSize();
+
+  unsigned WordSize = 4; //32-bit ARM
+
+  unsigned ScratchReg1, ScratchReg2, SPReg, PReg, SPLimOffset;
+  unsigned LEAop, CMPop, CALLop;	
+
+  // HiPE-specific values
+  unsigned HipeLeafWords = 16;  // see hipe_literals.hrl
+  unsigned Guaranteed = HipeLeafWords * WordSize;
+  DebugLoc DL;
+
+  if (MF.getFunction()->getCallingConv() == CallingConv::HiPE) {
+    if (MFI->hasCalls())
+      MaxStack += (HipeLeafWords + 2) * WordSize;
+
+    if (MFI->hasCalls() && MaxStack > Guaranteed) {
+      MachineBasicBlock *stackCheckMBB = MF.CreateMachineBasicBlock();
+      MachineBasicBlock *incStackMBB = MF.CreateMachineBasicBlock();
+      // Having StackCheckMBB as the entry block is not possible. We need to
+      // jumping back to the stack check block, in order to re-check that the
+      // new stack size (stack was doubled by inc_stack_0) is enough, and it
+      // being the entry block makes this illegal. Thus, we create a new Entry
+      // Block that falls to StackCheckMBB.
+      MachineBasicBlock *newEntryMBB = MF.CreateMachineBasicBlock();
+
+      for (MachineBasicBlock::livein_iterator i = prologueMBB.livein_begin(),
+             e = prologueMBB.livein_end(); i != e; i++) {
+        incStackMBB->addLiveIn(*i);
+        stackCheckMBB->addLiveIn(*i);
+        newEntryMBB->addLiveIn(*i);
+      }
+
+      MF.push_front(incStackMBB);
+      MF.push_front(stackCheckMBB);
+      MF.push_front(newEntryMBB);
+
+      SPReg = ARM::R10;
+      PReg  = ARM::R11;
+
+      CMPop = ARM::CMPrr;
+      CALLop = ARM::BL;	
+      SPLimOffset = 0x24;	
+
+      ScratchReg1 = ARM::R8;  //see hipe_arm_registers and hipe_arm_frame.erl
+      ScratchReg2 = ARM::R12;
+	
+      assert(!MF.getRegInfo().isLiveIn(ScratchReg1) &&
+             "HiPE prologue scratch register 1 is live-in");
+      assert(!MF.getRegInfo().isLiveIn(ScratchReg2) &&
+             "HiPE prologue scratch register 2 is live-in");
+
+      BuildMI(stackCheckMBB, DL, TII.get(ARM::SUBri), ScratchReg1)
+        .addReg(SPReg).addImm(MaxStack);	
+       
+      BuildMI(stackCheckMBB, DL, TII.get(ARM::ADDri), ScratchReg2)
+        .addReg(PReg).addImm(SPLimOffset);  
+
+      BuildMI(stackCheckMBB, DL, TII.get(CMPop))
+		.addReg(ScratchReg1).addReg(ScratchReg2);
+ 	
+      BuildMI(stackCheckMBB, DL, TII.get(ARM::Bcc)).addMBB(&prologueMBB)
+		.addImm(ARMCC::GE).addReg(ARM::CPSR);
+
+      BuildMI(incStackMBB, DL, TII.get(CALLop)).
+			addExternalSymbol("inc_stack_0");
+
+      BuildMI(incStackMBB, DL, TII.get(ARM::B)).addMBB(stackCheckMBB);  
+
+      stackCheckMBB->addSuccessor(&prologueMBB, 99);
+      stackCheckMBB->addSuccessor(incStackMBB, 1);
+
+      incStackMBB->addSuccessor(stackCheckMBB);
+      newEntryMBB->addSuccessor(stackCheckMBB);
+	
+    }
+}	
+#ifdef XDEBUG 
+	MF.verify();	
+#endif
 }
