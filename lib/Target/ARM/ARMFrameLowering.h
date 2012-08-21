@@ -20,9 +20,11 @@
 
 namespace llvm {
   class ARMSubtarget;
+  class ARMTargetMachine;	
 
 class ARMFrameLowering : public TargetFrameLowering {
 protected:
+  //const ARMTargetMachine &TM;
   const ARMSubtarget &STI;
 
 public:
@@ -58,6 +60,7 @@ public:
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                             RegScavenger *RS) const;
+  void adjustForHiPEPrologue(MachineFunction &MF) const;
 
  private:
   void emitPushInst(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
