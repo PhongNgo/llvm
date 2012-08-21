@@ -1835,6 +1835,10 @@ CCAssignFn *ARMFastISel::CCAssignFnForCall(CallingConv::ID CC, bool Return) {
     return (Return ? RetCC_ARM_AAPCS: CC_ARM_AAPCS);
   case CallingConv::ARM_APCS:
     return (Return ? RetCC_ARM_APCS: CC_ARM_APCS);
+
+ //----------------------------added for HiPE----------------
+  case CallingConv::HiPE: 
+     return (Return ? RetCC_ARM_32_HIPE : CC_ARM_32_HIPE); 
   }
 }
 

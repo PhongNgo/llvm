@@ -175,3 +175,45 @@ def CSR_AAPCS : CalleeSavedRegs<(add LR, R11, R10, R9, R8, R7, R6, R5, R4,
 // iOS ABI deviates from ARM standard ABI. R9 is not a callee-saved register.
 // Also save R7-R4 first to match the stack frame fixed spill areas.
 def CSR_iOS : CalleeSavedRegs<(add LR, R7, R6, R5, R4, (sub CSR_AAPCS, R9))>;
+
+
+//----------------------Added for ARM HiPE calling convention----------------
+// ARM HiPE return-value convention.
+def RetCC_ARM_32_HIPE : CallingConv<[
+ 
+ // Handle all vector types as either f64 or v2f64.
+  CCIfType<[v1i64, v2i32, v4i16, v8i8, v2f32], CCBitConvertToType<f64>>,
+  CCIfType<[v2i64, v4i32, v8i16, v16i8, v4f32], CCBitConvertToType<v2f64>>,
+
+  CCIfType<[v2f64], CCAssignToReg<[Q4, Q5]>>,
+  CCIfType<[f64], CCAssignToReg<[D8, D9, D10, D11]>>,
+  CCIfType<[f32], CCAssignToReg<[S16, S17, S18, S19, S20, S21, S22, S23]>>,
+
+  // Promote all types to i32
+  CCIfType<[i8, i16], CCPromoteToType<i32>>,
+
+  // Return: HP, P, SP, VAL1, //hipe_arm_abi.txt -> only one return value in R0
+  CCIfType<[i32], CCAssignToReg<[R9, R11, R10, R0]>>
+]>;
+
+
+def CC_ARM_32_HIPE : CallingConv<[
+
+ // Handle all vector types as either f64 or v2f64.
+  CCIfType<[v1i64, v2i32, v4i16, v8i8, v2f32], CCBitConvertToType<f64>>,
+  CCIfType<[v2i64, v4i32, v8i16, v16i8, v4f32], CCBitConvertToType<v2f64>>,
+
+  CCIfType<[v2f64], CCAssignToReg<[Q4, Q5]>>,
+  CCIfType<[f64], CCAssignToReg<[D8, D9, D10, D11]>>,
+  CCIfType<[f32], CCAssignToReg<[S16, S17, S18, S19, S20, S21, S22, S23]>>,
+
+  // Promote i8/i16 arguments to i32.
+  CCIfType<[i8, i16], CCPromoteToType<i32>>,
+
+  // Pass in VM's registers: HP, P, SP, ARG0, ARG1, ARG2
+  CCIfType<[i32], CCAssignToReg<[R9, R11, R10, R1, R2, R3]>>, // Only 3 ARGS enabled (OTP: ARM_NR_ARGS).
+
+  // Integer/Float values get stored in stack slots that are 4 bytes in
+  // size and 4-byte aligned.
+  CCIfType<[i32, f32], CCAssignToStack<4, 4>>
+]>;

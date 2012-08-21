@@ -21,6 +21,7 @@
 #include "MCTargetDesc/ARMAddressingModes.h"
 #include "llvm/Constants.h"
 #include "llvm/DerivedTypes.h"
+#include "llvm/CallingConv.h"
 #include "llvm/Function.h"
 #include "llvm/LLVMContext.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
@@ -63,12 +64,31 @@ ARMBaseRegisterInfo::ARMBaseRegisterInfo(const ARMBaseInstrInfo &tii,
 
 const uint16_t*
 ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  return (STI.isTargetIOS()) ? CSR_iOS_SaveList : CSR_AAPCS_SaveList;
+  
+
+  bool hipeCall = false;
+
+  if (MF) {
+	    const Function *F = MF->getFunction();
+    hipeCall = (F ? F->getCallingConv() == CallingConv::HiPE : false);
+  }
+  static const unsigned HipeCalleeSavedRegs[] = { 0 };
+
+  return hipeCall? (const uint16_t*) HipeCalleeSavedRegs : 
+		STI.isTargetIOS() ? CSR_iOS_SaveList : CSR_AAPCS_SaveList;
 }
 
 const uint32_t*
-ARMBaseRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
-  return (STI.isTargetIOS()) ? CSR_iOS_RegMask : CSR_AAPCS_RegMask;
+ARMBaseRegisterInfo::getCallPreservedMask(CallingConv::ID CC) const {
+
+  bool hipeCall = false;
+ if (CC == CallingConv::HiPE)
+	hipeCall = true;
+
+  static const unsigned int HipeCalleeSavedRegs[] = { 0 };
+  
+  return hipeCall? (const uint32_t*) HipeCalleeSavedRegs : 
+		STI.isTargetIOS() ? CSR_iOS_RegMask : CSR_AAPCS_RegMask;
 }
 
 BitVector ARMBaseRegisterInfo::
